@@ -1,9 +1,0 @@
-#pragma once
-
-#include <algorithm>
-#include <opencv2/opencv.hpp>
-
-class SpacePoints {
-  std::vector<cv::Point3f> Points_;
-  std::map<int, int> LabelsToPoints_;
-};
