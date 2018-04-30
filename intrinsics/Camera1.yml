@@ -1,0 +1,36 @@
+%YAML:1.0
+cam1_K: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 3.7291975324075497e+003, 0., 1.2240842823206881e+003, 0.,
+       3.7114173257088701e+003, 8.9930058802216047e+002, 0., 0., 1. ]
+cam1_kc: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data: [ -1.2603881861770852e-001, 2.0538116754697723e-002,
+       -9.2358982110926201e-003, -6.1068357784602361e-003, 0. ]
+cam2_K: !!opencv-matrix
+   rows: 0
+   cols: 0
+   dt: u
+   data: []
+cam2_kc: !!opencv-matrix
+   rows: 0
+   cols: 0
+   dt: u
+   data: []
+cam_R: !!opencv-matrix
+   rows: 0
+   cols: 0
+   dt: u
+   data: []
+cam_T: !!opencv-matrix
+   rows: 0
+   cols: 0
+   dt: u
+   data: []
+cam1_error: 8.5778995790619406e-001
+cam2_error: 0.
+stereo_cerror: 0.

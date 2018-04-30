@@ -1,0 +1,20 @@
+#pragma once
+
+#include <ceres/ceres.h>
+
+#include "camera.h"
+#include "SpacePoints.hpp"
+
+
+class BundleAllCameras {
+ public:
+  BundleAllCameras(std::vector<Camera> *_cams, 
+                   SpacePoints<cv::Point3d> *_space_pts) 
+      : cams_(_cams), space_pts_(_space_pts) {}
+
+  void Optimize();
+
+
+  std::vector<Camera> *cams_;
+  SpacePoints<cv::Point3d> *space_pts_;
+};
