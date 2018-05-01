@@ -141,7 +141,6 @@ struct CameraKReprojectError{
   bool operator()(const T *const _K,
                   const T *const _R, // AngleAxis form
                   const T *const _t, // translation
-                  const T *const _dist, // distortion
                   const T *const _point, // 3d space pt projected to the image
                   T *_residuals) const {
 
@@ -152,30 +151,10 @@ struct CameraKReprojectError{
     p[2] += _t[2];
 
 
-    T X = p[0] / p[2];
-    T Y = p[1] / p[2];
-
-    T rsq = X * X + Y * Y;
-    T radical_factor = T(1) +  
-                       _dist[0] * rsq + 
-                       _dist[1] * rsq * rsq + 
-                       _dist[4] * rsq * rsq * rsq;
-    
-    T x_r = X * radical_factor;
-    T y_r = Y * radical_factor;
-
-    T x_d[3] = {T(0), T(0), T(1)};
-
-    x_d[0] = x_r + T(2) * _dist[2] * X * Y + 
-             _dist[3]*(rsq + T(2) * X * X);
-    x_d[1] = y_r + _dist[2] * (rsq + T(2) * Y * Y) + 
-             T(2) * _dist[3] * X * Y;
-
-
     T pp[3] = {T(0), T(0), T(0)};
     for (int i = 0; i < 3; ++i) {
       for (int j = 0; j < 3; ++j) {
-        pp[i]  += _K[i * 3 + j] * x_d[j];
+        pp[i]  += _K[i * 3 + j] * p[j];
       }
     }
 
@@ -193,7 +172,7 @@ struct CameraKReprojectError{
                                      const double _observed_y) {
     return (
         new 
-        ceres::AutoDiffCostFunction<CameraKReprojectError, 2, 9, 3, 3, 5, 3> 
+        ceres::AutoDiffCostFunction<CameraKReprojectError, 2, 9, 3, 3, 3> 
         (new CameraKReprojectError(_observed_x, _observed_y)));
   }
 
@@ -204,10 +183,9 @@ struct CameraKReprojectError{
 
 
 void BundleAllCameras::Optimize() {
-  // std::vector<std::shared_ptr<double>> angle_axes(cams_->size(), new double[3]);
-  std::vector<double *> angle_axes(cams_->size(), nullptr);
+
+  std::vector<double[3]> angle_axes(cams_->size());
   for (std::size_t i = 0; i < cams_->size(); ++i) {
-    angle_axes[i] = new double[3];
     const auto &cam = cams_->at(i);
     const double *rot_mat = cam.R_.ptr<double>(0);
     ceres::RotationMatrixToAngleAxis(ceres::RowMajorAdapter3x3(rot_mat),
@@ -218,24 +196,28 @@ void BundleAllCameras::Optimize() {
 
   for (std::size_t i = 0; i < cams_->size(); ++i) {
     auto &cam = cams_->at(i);
-    const auto &labels = cam.space_pt_labels_;
+    const auto &labels = cam.space_pt_labels_; //////!!!!!
     
     for (const auto label : labels) {
       auto l2observ = cam.l2imgpt_idx_.find(label);
-      if (l2observ == cam.l2imgpt_idx_.end())
+      if (l2observ == cam.l2imgpt_idx_.end()) //
         return;
-      const auto ob_idx = l2observ->second;
-      const auto &r_pt = cam.rectified_pts_[ob_idx];
+
+      const auto ob_idx = l2observ->second; // corresponding observe
+      const auto &r_pt = cam.img_pts_[ob_idx];
     
       cv::Point3d *space_pt = space_pts_->get_labeled_pt_pointer(label);
-      if (space_pt == nullptr)
+      if (space_pt == nullptr) {// ignore observe without 3d points
+        std::cerr << "cannot find a space point\n";
         return;
+      }
     
       ceres::CostFunction * cost_function = 
-          CameraReprojectError::Create(r_pt.x, r_pt.y);
+          CameraKReprojectError::Create(r_pt.x, r_pt.y);
 
       problem.AddResidualBlock(cost_function,
                                NULL,//new ceres::CauchyLoss(5),
+                               cam.intrinsic_.ptr<double>(0),
                                angle_axes[i],
                                cam.t_.ptr<double>(0),
                                &(space_pt->x));
@@ -244,6 +226,7 @@ void BundleAllCameras::Optimize() {
 
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.preconditioner_type = ceres::JACOBI;
   options.max_num_iterations = 150;
   options.minimizer_progress_to_stdout = true;
   
@@ -251,15 +234,12 @@ void BundleAllCameras::Optimize() {
   ceres::Solve(options, &problem, &summary);
   std::cout << summary.FullReport() << "\n";
   
-  for (std::size_t i = 1; i < cams_->size(); ++i) {
+  for (std::size_t i = 0; i < cams_->size(); ++i) {
     auto &cam = cams_->at(i);
     double *rot_mat = cam.R_.ptr<double>(0);
     ceres::AngleAxisToRotationMatrix(angle_axes[i],
                                      ceres::RowMajorAdapter3x3(rot_mat)); 
-    delete []angle_axes[i];
-    // std::cout << cam.R_ << std::endl;
   }
-  
 }
 
 
@@ -267,7 +247,6 @@ bool BundleTwoCameras::operator()(
     std::array<cv::Mat, 2> &_Ks,
     std::array<cv::Mat, 2> &_Rs,
     std::array<cv::Mat, 2> &_ts,
-    std::array<cv::Mat, 2> &_dists,
     std::array<std::vector<cv::Point2d>, 2> &_observes,
     std::vector<cv::Point3d> &_space_pts) {
   
@@ -296,7 +275,6 @@ bool BundleTwoCameras::operator()(
                                _Ks[i].ptr<double>(0),
                                angle_axes[i],
                                _ts[i].ptr<double>(0),
-                               _dists[i].ptr<double>(0),
                                &(space_pt.x));
     }
   }
@@ -304,7 +282,7 @@ bool BundleTwoCameras::operator()(
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
   options.preconditioner_type = ceres::JACOBI;
-  options.max_num_iterations = 150;
+  options.max_num_iterations = 15;
   // options.use_nonmonotonic_steps = true;
   
   options.minimizer_progress_to_stdout = true;

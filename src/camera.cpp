@@ -62,12 +62,9 @@ bool Camera::read_2d_pts(const std::string &_2d_pts_file) {
     l2imgpt_idx_.insert(std::make_pair(order_img, i));
     ++i;
   }
-  // std::cout << img_pts_[0].x << ' ' << img_pts_[0].y << std::endl;
-  cv::undistortPoints(img_pts_, rectified_pts_, intrinsic_, dist_coeff_);
-  // std::cout << "read_2d_pts undist.size() " 
-  //           << rectified_pts_.size() << std::endl;
-  // std::cout << rectified_pts_[0].x << ' ' << rectified_pts_[0].y << std::endl;
 
+  cv::undistortPoints(img_pts_, rectified_pts_, intrinsic_, dist_coeff_);
+  
   return true;
 }
 

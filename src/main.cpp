@@ -276,15 +276,17 @@ bool triangulate_pts(Camera &_cam1,
     std::array<cv::Mat, 2> Ks {{_cam1.intrinsic_, _cam2.intrinsic_}};
     std::array<cv::Mat, 2> Rs {{I, R}};
     std::array<cv::Mat, 2> ts {{o, t}};
-    std::array<cv::Mat, 2> dists {{_cam1.dist_coeff_, _cam2.dist_coeff_}};
     std::array<std::vector<cv::Point2d>, 2> observes{{observes1, observes2}};
 
-    if (btc(Ks, Rs, ts, dists, observes, space_pts)) {
+    if (btc(Ks, Rs, ts, observes, space_pts)) {
       cv::Mat R12 = R * I.t(); // from I to R
       _cam2.R_ = R12 * _cam1.R_; 
       cv::Mat C2 = -R.t() * t; 
       cv::Mat Cc2 = _cam1.R_.t() * (I * C2 + o - _cam1.t_);
       _cam2.t_ = -_cam2.R_ * Cc2;
+
+      _cam1.intrinsic_ = Ks[0];
+      _cam2.intrinsic_ = Ks[1];
       break;
     } else {
       I = cv::Mat::eye(3, 3, CV_64F);
@@ -297,6 +299,7 @@ bool triangulate_pts(Camera &_cam1,
   if (num_it == 29)
     return false;
 
+  
   for (std::size_t i = 0; i < space_pts.size(); ++i) {
     auto pt = space_pts[i];
     cv::Mat mpt(3, 1, CV_64F, &(pt.x));
@@ -326,37 +329,124 @@ bool triangulate_pts(Camera &_cam1,
 }
 
 
+void incremental_triangulate(std::vector<Camera> &_cams,
+                             Camera &_new_cam,
+                             SpacePoints<cv::Point3d> &_space_pts) {
+  std::vector<int> space_pts_labels;
+  retrieve_keys(_space_pts.l2pt_idx_, space_pts_labels);
+  std::cout << "space_pts_labels size " << space_pts_labels.size() << std::endl;
+
+  std::vector<int> new_cam_pts_labels;
+  retrieve_keys(_new_cam.l2imgpt_idx_, new_cam_pts_labels);
+  std::cout << "new_cam_pts_labels " << new_cam_pts_labels.size() << std::endl;
+
+
+  std::vector<int> common_labels;
+  std::set_intersection(space_pts_labels.begin(), space_pts_labels.end(),
+                        new_cam_pts_labels.begin(), new_cam_pts_labels.end(),
+                        std::back_inserter(common_labels));
+  std::cout << "common_labels size " << common_labels.size() << std::endl;
+
+  std::vector<cv::Point3d> objectPoints;
+  objectPoints.reserve(common_labels.size());
+  std::vector<cv::Point2d> imagePoints;
+  imagePoints.reserve(common_labels.size());
+
+  for (const auto label : common_labels) {
+    auto obs_i = _new_cam.l2imgpt_idx_[label];
+    auto pts_i = _space_pts.l2pt_idx_[label];
+
+    imagePoints.push_back(_new_cam.img_pts_[obs_i]);
+    objectPoints.push_back(_space_pts.points_[pts_i]);
+  }
+
+  cv::Mat rvec, tvec;
+  cv::solvePnP(objectPoints, imagePoints, 
+               _new_cam.intrinsic_, _new_cam.dist_coeff_, rvec, tvec);
+
+  cv::Mat rot_mat;
+  cv::Rodrigues(rvec, rot_mat);
+
+  cv::Mat new_projMat(3, 4, CV_64F);
+  cv::hconcat(rot_mat, tvec, new_projMat);
+  new_projMat = _new_cam.intrinsic_ * new_projMat;
+
+
+  std::vector<int> left_labels;
+  std::set_difference(new_cam_pts_labels.begin(), new_cam_pts_labels.end(),
+                      common_labels.begin(), common_labels.end(),
+                      std::back_inserter(left_labels));
+
+  std::cout << "left_labels size " << left_labels.size() << std::endl;
+
+
+  for (const auto &another_cam : _cams) {
+    cv::Mat another_projMat(3, 4, CV_64F);
+    cv::hconcat(another_cam.R_, another_cam.t_, another_projMat);
+    another_projMat = another_cam.intrinsic_ * another_projMat;
+
+    std::vector<int> another_labels;
+    retrieve_keys(another_cam.l2imgpt_idx_, another_labels);
+
+    std::vector<int> obs_no_pts_labels;
+    std::set_difference(another_labels.begin(), another_labels.end(),
+                        common_labels.begin(), common_labels.end(),
+                        std::back_inserter(obs_no_pts_labels));
+    std::cout << "obs_no_pts_labels " << obs_no_pts_labels.size() << std::endl;
+
+    std::vector<int> common_labels_0;
+    std::set_intersection(left_labels.begin(), left_labels.end(),
+                          obs_no_pts_labels.begin(), obs_no_pts_labels.end(),
+                          std::back_inserter(common_labels_0));
+    std::cout << "common_labels_0 " << common_labels_0.size() << std::endl;
+    if (common_labels_0.empty())
+      continue;
+  
+    std::vector<cv::Point2d> new_obs;
+    retrieve_points(_new_cam, common_labels_0, new_obs);
+    std::vector<cv::Point2d> another_obs;
+    retrieve_points(another_cam, common_labels_0, another_obs);
+    std::cout << "new_obs size " << new_obs.size() << std::endl;
+    std::cout << "another_obs size " << another_obs.size() << std::endl;
+
+    std::vector<int> cam_labels {{_new_cam.cam_label_, another_cam.cam_label_}};
+
+    cv::Mat homo_space_pts(4, common_labels_0.size(), CV_64F);
+    cv::triangulatePoints(new_projMat, another_projMat, 
+                          new_obs, another_obs, homo_space_pts);
+
+    for (int i = 0; i < homo_space_pts.cols; ++i) {
+      auto x = homo_space_pts.at<double>(0, i);
+      auto y = homo_space_pts.at<double>(1, i);
+      auto z = homo_space_pts.at<double>(2, i);
+      auto u = homo_space_pts.at<double>(3, i);
+      cv::Point3d current_pt(x/u, y/u, z/u);
+      _space_pts.insert(common_labels_0[i], current_pt, cam_labels);
+    }
+    
+    // std::vector<int> temp;
+    // std::set_difference(left_labels.begin(), left_labels.end(),
+    //                     common_labels_0.begin(), common_labels_0.end(),
+    //                     std::back_inserter(temp));
+    // left_labels = temp;
+  }
+  
+  std::cout << "_space_pts size " << _space_pts.size() << std::endl;
+  /// BA all the cameras
+}
+
+
 
 void construct_3d_pts(std::vector<Camera> &_cams,
                       SpacePoints<cv::Point3d> &_space_pts) {
   triangulate_pts(_cams[0], _cams[2], _space_pts);
 
-  cv::viz::writeCloud("bsolved.ply", _space_pts.points_);
+  cv::viz::writeCloud("first.ply", _space_pts.points_);
 
+  std::vector<Camera> cams{{_cams[0], _cams[2]}};
 
-  std::vector<int> space_pts_labels;
-  retrieve_keys(_space_pts.l2pt_idx_, space_pts_labels);
-  std::vector<int> cam0_pts_labels;
-  retrieve_keys(_cams[1].l2imgpt_idx_, cam0_pts_labels);
-  
-  std::vector<int> common_labels;
-  std::set_intersection(cam0_pts_labels.begin(), cam0_pts_labels.end(),
-                        space_pts_labels.begin(), space_pts_labels.end(),
-                        std::back_inserter(common_labels));
+  incremental_triangulate(cams, _cams[1], _space_pts);
+  cv::viz::writeCloud("cam1.ply", _space_pts.points_);
 
-  std::vector<cv::Point3d> objectPoints;
-  objectPoints.reserve(common_labels.size());
-  std::vector<cv::Point2d> imagePoints;
-  imagePoints.reserve(imagePoints.size());
-
-  for (const auto label : common_labels) {
-    auto obs_i = _cams[1].l2imgpt_idx_[label];
-    auto pts_i = _space_pts.l2pt_idx_[label];
-
-    imagePoints.push_back(_cams[1].img_pts_[obs_i]);
-    objectPoints.push_back(_space_pts.points_[pts_i]);
-  }
-
-  
 }
                       
