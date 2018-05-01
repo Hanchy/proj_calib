@@ -273,10 +273,10 @@ bool triangulate_pts(Camera &_cam1,
       space_pts.push_back(current_pt);
     }
 
-    std::array<cv::Mat, 2> Ks {_cam1.intrinsic_, _cam2.intrinsic_};
-    std::array<cv::Mat, 2> Rs {I, R};
-    std::array<cv::Mat, 2> ts {o, t};
-    std::array<std::vector<cv::Point2d>, 2> observes{observes1, observes2};
+    std::array<cv::Mat, 2> Ks {{_cam1.intrinsic_, _cam2.intrinsic_}};
+    std::array<cv::Mat, 2> Rs {{I, R}};
+    std::array<cv::Mat, 2> ts {{o, t}};
+    std::array<std::vector<cv::Point2d>, 2> observes{{observes1, observes2}};
 
     if (btc(Ks, Rs, ts, observes, space_pts)) {
       cv::Mat R12 = R * I.t(); // from I to R
@@ -330,7 +330,7 @@ void construct_3d_pts(std::vector<Camera> &_cams,
                       SpacePoints<cv::Point3d> &_space_pts) {
   triangulate_pts(_cams[2], _cams[0], _space_pts);
 
-  cv::viz::writeCloud("bsolved.ply", _space_pts.points_);
+  // cv::viz::writeCloud("bsolved.ply", _space_pts.points_);
 
 
   std::vector<int> space_pts_labels;
@@ -349,10 +349,10 @@ void construct_3d_pts(std::vector<Camera> &_cams,
   imagePoints.reserve(imagePoints.size());
 
   for (const auto label : common_labels) {
-    auto obs_i = cam[1].l2imgpt_idx_[label];
+    auto obs_i = _cams[1].l2imgpt_idx_[label];
     auto pts_i = _space_pts.l2pt_idx_[label];
 
-    imagePoints.push_back(cam[1].img_pts_[obs_i]);
+    imagePoints.push_back(_cams[1].img_pts_[obs_i]);
     objectPoints.push_back(_space_pts.points_[pts_i]);
   }
 

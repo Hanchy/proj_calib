@@ -261,7 +261,7 @@ bool BundleTwoCameras::operator()(
     return false;
 
 
-  std::array<double[3], 2> angle_axes = {0, 0, 0, 0, 0, 0};
+  std::array<double[3], 2> angle_axes = {{{0, 0, 0}, {0, 0, 0}}};
   for (int i = 0; i < 2; ++i) {
     const double *rot_mat = _Rs[i].ptr<double>(0);
     ceres::RotationMatrixToAngleAxis(ceres::RowMajorAdapter3x3(rot_mat),
