@@ -276,9 +276,10 @@ bool triangulate_pts(Camera &_cam1,
     std::array<cv::Mat, 2> Ks {{_cam1.intrinsic_, _cam2.intrinsic_}};
     std::array<cv::Mat, 2> Rs {{I, R}};
     std::array<cv::Mat, 2> ts {{o, t}};
+    std::array<cv::Mat, 2> dists {{_cam1.dist_coeff_, _cam2.dist_coeff_}};
     std::array<std::vector<cv::Point2d>, 2> observes{{observes1, observes2}};
 
-    if (btc(Ks, Rs, ts, observes, space_pts)) {
+    if (btc(Ks, Rs, ts, dists, observes, space_pts)) {
       cv::Mat R12 = R * I.t(); // from I to R
       _cam2.R_ = R12 * _cam1.R_; 
       cv::Mat C2 = -R.t() * t; 
@@ -328,9 +329,9 @@ bool triangulate_pts(Camera &_cam1,
 
 void construct_3d_pts(std::vector<Camera> &_cams,
                       SpacePoints<cv::Point3d> &_space_pts) {
-  triangulate_pts(_cams[2], _cams[0], _space_pts);
+  triangulate_pts(_cams[0], _cams[2], _space_pts);
 
-  // cv::viz::writeCloud("bsolved.ply", _space_pts.points_);
+  cv::viz::writeCloud("bsolved.ply", _space_pts.points_);
 
 
   std::vector<int> space_pts_labels;
@@ -357,7 +358,5 @@ void construct_3d_pts(std::vector<Camera> &_cams,
   }
 
   
-  
-
 }
                       

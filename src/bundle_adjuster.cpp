@@ -141,6 +141,7 @@ struct CameraKReprojectError{
   bool operator()(const T *const _K,
                   const T *const _R, // AngleAxis form
                   const T *const _t, // translation
+                  const T *const _dist, // distortion
                   const T *const _point, // 3d space pt projected to the image
                   T *_residuals) const {
 
@@ -150,24 +151,36 @@ struct CameraKReprojectError{
     p[1] += _t[1];
     p[2] += _t[2];
 
+
+    T X = p[0] / p[2];
+    T Y = p[1] / p[2];
+
+    T rsq = X * X + Y * Y;
+    T radical_factor = T(1) +  
+                       _dist[0] * rsq + 
+                       _dist[1] * rsq * rsq + 
+                       _dist[4] * rsq * rsq * rsq;
+    
+    T x_r = X * radical_factor;
+    T y_r = Y * radical_factor;
+
+    T x_d[3] = {T(0), T(0), T(1)};
+
+    x_d[0] = x_r + T(2) * _dist[2] * X * Y + 
+             _dist[3]*(rsq + T(2) * X * X);
+    x_d[1] = y_r + _dist[2] * (rsq + T(2) * Y * Y) + 
+             T(2) * _dist[3] * X * Y;
+
+
     T pp[3] = {T(0), T(0), T(0)};
     for (int i = 0; i < 3; ++i) {
       for (int j = 0; j < 3; ++j) {
-        pp[i]  += _K[i * 3 + j] * p[j];
+        pp[i]  += _K[i * 3 + j] * x_d[j];
       }
     }
 
     pp[0] /= pp[2];
     pp[1] /= pp[2];
-
-    // T ip[3];
-    // for (int i = 0; i < 3; ++i) {
-    //     ip[i]  = _invK[i * 3 + 0] * observed_x_;
-    //     ip[i] += _invK[i * 3 + 1] * observed_y_;
-    //     ip[i] += _invK[i * 3 + 2];
-    // }
-    // ip[0] /= ip[2];
-    // ip[1] /= ip[2];
 
     _residuals[0] = observed_x_ - pp[0];
     _residuals[1] = observed_y_ - pp[1];
@@ -179,7 +192,8 @@ struct CameraKReprojectError{
   static ceres::CostFunction *Create(const double _observed_x,
                                      const double _observed_y) {
     return (
-        new ceres::AutoDiffCostFunction<CameraKReprojectError, 2, 9, 3, 3, 3> 
+        new 
+        ceres::AutoDiffCostFunction<CameraKReprojectError, 2, 9, 3, 3, 5, 3> 
         (new CameraKReprojectError(_observed_x, _observed_y)));
   }
 
@@ -253,6 +267,7 @@ bool BundleTwoCameras::operator()(
     std::array<cv::Mat, 2> &_Ks,
     std::array<cv::Mat, 2> &_Rs,
     std::array<cv::Mat, 2> &_ts,
+    std::array<cv::Mat, 2> &_dists,
     std::array<std::vector<cv::Point2d>, 2> &_observes,
     std::vector<cv::Point3d> &_space_pts) {
   
@@ -281,6 +296,7 @@ bool BundleTwoCameras::operator()(
                                _Ks[i].ptr<double>(0),
                                angle_axes[i],
                                _ts[i].ptr<double>(0),
+                               _dists[i].ptr<double>(0),
                                &(space_pt.x));
     }
   }
@@ -288,14 +304,14 @@ bool BundleTwoCameras::operator()(
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
   options.preconditioner_type = ceres::JACOBI;
-  options.max_num_iterations = 15;
+  options.max_num_iterations = 150;
   // options.use_nonmonotonic_steps = true;
   
-  // options.minimizer_progress_to_stdout = true;
+  options.minimizer_progress_to_stdout = true;
   
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
-  // std::cout << summary.FullReport() << "\n";
+  std::cout << summary.FullReport() << "\n";
   if (summary.termination_type == ceres::CONVERGENCE)
     return true;
   else

@@ -27,6 +27,7 @@ class BundleTwoCameras {
   bool operator()(std::array<cv::Mat, 2> &_Ks,
                   std::array<cv::Mat, 2> &_Rs,
                   std::array<cv::Mat, 2> &_ts,
+                  std::array<cv::Mat, 2> &_dists,
                   std::array<std::vector<cv::Point2d>, 2> &_observes,
                   std::vector<cv::Point3d> &_space_pts);
   

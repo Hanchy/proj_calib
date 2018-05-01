@@ -13,7 +13,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   # set(DY_EXT "so")
   set(CMAKE_MODULE_PATH 
-    ${CMAKE_MODULE_PATH} /usr/local//Cellar/opencv/3.4.1_4/share/OpenCV/)
+    ${CMAKE_MODULE_PATH} /usr/local/share/OpenCV)
   set(OpenCV_INCLUDE_DIR "/usr/local/include")
   set(OpenBLAS_LIBS "/opt/OpenBLAS/lib/libopenblas.so")
 endif()
