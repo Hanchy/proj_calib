@@ -4,6 +4,7 @@
 #include "read_data.hpp"
 #include "SpacePoints.hpp"
 #include "bundle_adjuster.hpp"
+#include "saveply.hpp"
 
 void draw_points(const Camera &_cam, cv::Mat &_plane);
 void draw_r_points(const Camera &_cam, cv::Mat &_plane);
@@ -346,6 +347,8 @@ void incremental_triangulate(std::vector<Camera> &_cams,
                         new_cam_pts_labels.begin(), new_cam_pts_labels.end(),
                         std::back_inserter(common_labels));
   std::cout << "common_labels size " << common_labels.size() << std::endl;
+  for(auto l : common_labels)
+    _new_cam.space_pt_labels_.insert(l);
 
   std::vector<cv::Point3d> objectPoints;
   objectPoints.reserve(common_labels.size());
@@ -409,26 +412,41 @@ void incremental_triangulate(std::vector<Camera> &_cams,
     std::cout << "new_obs size " << new_obs.size() << std::endl;
     std::cout << "another_obs size " << another_obs.size() << std::endl;
 
-    std::vector<int> cam_labels {{_new_cam.cam_label_, another_cam.cam_label_}};
 
     cv::Mat homo_space_pts(4, common_labels_0.size(), CV_64F);
     cv::triangulatePoints(new_projMat, another_projMat, 
                           new_obs, another_obs, homo_space_pts);
-
+    std::vector<cv::Point3d> space_pts;
+    space_pts.reserve(common_labels_0.size());
     for (int i = 0; i < homo_space_pts.cols; ++i) {
       auto x = homo_space_pts.at<double>(0, i);
       auto y = homo_space_pts.at<double>(1, i);
       auto z = homo_space_pts.at<double>(2, i);
       auto u = homo_space_pts.at<double>(3, i);
       cv::Point3d current_pt(x/u, y/u, z/u);
-      _space_pts.insert(common_labels_0[i], current_pt, cam_labels);
+      space_pts.push_back(current_pt);
+      std::cout << current_pt << std::endl;
     }
     
-    // std::vector<int> temp;
-    // std::set_difference(left_labels.begin(), left_labels.end(),
-    //                     common_labels_0.begin(), common_labels_0.end(),
-    //                     std::back_inserter(temp));
-    // left_labels = temp;
+    std::cout << "space_pts size " << space_pts.size() << std::endl;
+    
+    std::array<cv::Mat, 2> Ks{{_new_cam.intrinsic_, another_cam.intrinsic_}};
+    std::array<cv::Mat, 2> Rs{{_new_cam.R_, another_cam.R_}};
+    std::array<cv::Mat, 2> ts{{_new_cam.t_, another_cam.t_}};
+    std::array<std::vector<cv::Point2d>, 2> observes{{new_obs, another_obs}};
+    BundleTwoCameras btw_points;
+    if (!btw_points.OptPoints(Ks, Rs, ts, observes, space_pts)) {
+      std::cerr << "OptPoints failed\n";
+      return;
+    }
+    btw_points(Ks, Rs, ts, observes, space_pts);
+
+    std::vector<int> cam_labels {{_new_cam.cam_label_, another_cam.cam_label_}};
+    for(std::size_t i = 0; i < space_pts.size(); ++i) {
+      auto &pt = space_pts[i];
+      if (!_space_pts.insert(common_labels_0[i], pt, cam_labels))
+        std::cerr << "coincidence points!\n";
+    }
   }
   
   std::cout << "_space_pts size " << _space_pts.size() << std::endl;
@@ -440,13 +458,11 @@ void incremental_triangulate(std::vector<Camera> &_cams,
 void construct_3d_pts(std::vector<Camera> &_cams,
                       SpacePoints<cv::Point3d> &_space_pts) {
   triangulate_pts(_cams[0], _cams[2], _space_pts);
-
-  cv::viz::writeCloud("first.ply", _space_pts.points_);
+  SavePLY("first.ply", _space_pts.points_);
 
   std::vector<Camera> cams{{_cams[0], _cams[2]}};
 
   incremental_triangulate(cams, _cams[1], _space_pts);
-  cv::viz::writeCloud("cam1.ply", _space_pts.points_);
-
+  SavePLY("cam1.ply", _space_pts.points_);
 }
                       

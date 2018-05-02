@@ -182,6 +182,67 @@ struct CameraKReprojectError{
 
 
 
+struct PointsKReprojectError{
+  
+  PointsKReprojectError(
+      double *_K,
+      double *_R,
+      double *_t,
+      double _observed_x, double _observed_y) 
+      : K_(_K), R_(_R), t_(_t),
+        observed_x_(_observed_x), 
+        observed_y_(_observed_y) {}
+
+  template <typename T>
+  bool operator()(const T *const _point, // 3d space pt projected to the image
+                  T *_residuals) const {
+
+    T p[3];
+    ceres::AngleAxisRotatePoint((T*)R_, _point, p);
+    p[0] += t_[0];
+    p[1] += t_[1];
+    p[2] += t_[2];
+
+
+    T pp[3] = {T(0), T(0), T(0)};
+    for (int i = 0; i < 3; ++i) {
+      for (int j = 0; j < 3; ++j) {
+        pp[i]  += K_[i * 3 + j] * p[j];
+      }
+    }
+
+    pp[0] /= pp[2];
+    pp[1] /= pp[2];
+
+    _residuals[0] = observed_x_ - pp[0];
+    _residuals[1] = observed_y_ - pp[1];
+    
+    return true;
+  }
+
+
+  static ceres::CostFunction *Create(double *_K,
+                                     double *_R,
+                                     double *_t,
+                                     const double _observed_x,
+                                     const double _observed_y) {
+    return (
+        new 
+        ceres::AutoDiffCostFunction<PointsKReprojectError, 2, 3> 
+        (new PointsKReprojectError(_K, _R, _t,
+                                   _observed_x, _observed_y)));
+  }
+
+  double *K_;
+  double *R_;
+  double *t_;
+
+  double observed_x_;
+  double observed_y_;
+};
+
+
+
 void BundleAllCameras::Optimize() {
 
   std::vector<double[3]> angle_axes(cams_->size());
@@ -285,11 +346,11 @@ bool BundleTwoCameras::operator()(
   options.max_num_iterations = 15;
   // options.use_nonmonotonic_steps = true;
   
-  options.minimizer_progress_to_stdout = true;
+  // options.minimizer_progress_to_stdout = true;
   
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
-  std::cout << summary.FullReport() << "\n";
+  // std::cout << summary.FullReport() << "\n";
   if (summary.termination_type == ceres::CONVERGENCE)
     return true;
   else
@@ -305,3 +366,81 @@ bool BundleTwoCameras::operator()(
   return true;
 }
 
+
+
+bool BundleTwoCameras::OptPoints(
+    std::array<cv::Mat, 2> &_Ks,
+    std::array<cv::Mat, 2> &_Rs,
+    std::array<cv::Mat, 2> &_ts,
+    std::array<std::vector<cv::Point2d>, 2> &_observes,
+    std::vector<cv::Point3d> &_space_pts) {
+  
+  if (_space_pts.size() != _observes[0].size() &&
+      _space_pts.size() != _observes[1].size())
+
+    return false;
+
+
+  std::array<double[3], 2> angle_axes = {{{0, 0, 0}, {0, 0, 0}}};
+  for (int i = 0; i < 2; ++i) {
+    const double *rot_mat = _Rs[i].ptr<double>(0);
+    ceres::RotationMatrixToAngleAxis(ceres::RowMajorAdapter3x3(rot_mat),
+                                     angle_axes[i]);
+  }
+
+  ceres::Problem problem;
+  for (int i = 0; i < 2; ++i) {
+    for (std::size_t idx = 0; idx < _space_pts.size(); ++idx) {
+      const auto &observe_pt = _observes[i][idx];
+      ceres::CostFunction * cost_function = 
+          CameraKReprojectError::Create(observe_pt.x, observe_pt.y);
+
+      auto &space_pt = _space_pts[idx];
+      problem.AddResidualBlock(cost_function,
+                               NULL,//new ceres::CauchyLoss(0.5),
+                               _Ks[i].ptr<double>(0),
+                               angle_axes[i],
+                               _ts[i].ptr<double>(0),
+                               &(space_pt.x));
+      problem.SetParameterBlockConstant(_Ks[i].ptr<double>(0));
+      problem.SetParameterBlockConstant(angle_axes[i]);
+      problem.SetParameterBlockConstant(_ts[i].ptr<double>(0));
+    }
+  }
+  /*
+  for (int i = 0; i < 2; ++i) {
+    for (std::size_t idx = 0; idx < _space_pts.size(); ++idx) {
+      const auto &observe_pt = _observes[i][idx];
+      ceres::CostFunction * cost_function = 
+          PointsKReprojectError::Create(
+              _Ks[i].ptr<double>(0),
+              angle_axes[i],
+              _ts[i].ptr<double>(0),
+              observe_pt.x, observe_pt.y);
+
+      auto &space_pt = _space_pts[idx];
+      problem.AddResidualBlock(cost_function,
+                               NULL,//new ceres::CauchyLoss(0.5),
+                               &(space_pt.x));
+    }
+  }
+  */
+  ceres::Solver::Options options;
+  options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.preconditioner_type = ceres::JACOBI;
+  options.max_num_iterations = 50;
+  // options.use_nonmonotonic_steps = true;
+  
+  options.minimizer_progress_to_stdout = true;
+  
+  ceres::Solver::Summary summary;
+  ceres::Solve(options, &problem, &summary);
+  std::cout << summary.FullReport() << "\n";
+  if (summary.termination_type == ceres::CONVERGENCE)
+    return true;
+  else
+    return false;
+  
+  //  return true;
+
+}
