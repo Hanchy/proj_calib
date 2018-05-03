@@ -56,6 +56,7 @@ bool SpacePoints<T>::insert(const int _label, const T &_pt,
     pt2cams_[search->second] = cam_union;
 
     return false;
+
   } else {
     points_.push_back(_pt);
     pt2cams_.push_back(_cams);

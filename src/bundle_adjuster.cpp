@@ -257,12 +257,16 @@ void BundleAllCameras::Optimize() {
 
   for (std::size_t i = 0; i < cams_->size(); ++i) {
     auto &cam = cams_->at(i);
+    // std::cout << cam.cam_label_ << std::endl;
     const auto &labels = cam.space_pt_labels_; //////!!!!!
     
     for (const auto label : labels) {
       auto l2observ = cam.l2imgpt_idx_.find(label);
-      if (l2observ == cam.l2imgpt_idx_.end()) //
+      if (l2observ == cam.l2imgpt_idx_.end()) {//
+        std::cerr << "cannot find corresponding observe "
+                  << cam.cam_label_ << '\t' << label << '\n';
         return;
+      }
 
       const auto ob_idx = l2observ->second; // corresponding observe
       const auto &r_pt = cam.img_pts_[ob_idx];
@@ -277,23 +281,26 @@ void BundleAllCameras::Optimize() {
           CameraKReprojectError::Create(r_pt.x, r_pt.y);
 
       problem.AddResidualBlock(cost_function,
-                               NULL,//new ceres::CauchyLoss(5),
+                               NULL, //new ceres::CauchyLoss(0.5),
                                cam.intrinsic_.ptr<double>(0),
                                angle_axes[i],
                                cam.t_.ptr<double>(0),
                                &(space_pt->x));
+      problem.SetParameterBlockConstant(cam.intrinsic_.ptr<double>(0));
     }
   }
+  problem.SetParameterBlockConstant(angle_axes[0]);
+  problem.SetParameterBlockConstant((*cams_)[0].t_.ptr<double>(0));
 
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
   options.preconditioner_type = ceres::JACOBI;
-  options.max_num_iterations = 150;
-  options.minimizer_progress_to_stdout = true;
+  options.max_num_iterations = 50;
+  // options.minimizer_progress_to_stdout = true;
   
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
-  std::cout << summary.FullReport() << "\n";
+  // std::cout << summary.FullReport() << "\n";
   
   for (std::size_t i = 0; i < cams_->size(); ++i) {
     auto &cam = cams_->at(i);
@@ -332,13 +339,16 @@ bool BundleTwoCameras::operator()(
 
       auto &space_pt = _space_pts[idx];
       problem.AddResidualBlock(cost_function,
-                               NULL,//new ceres::CauchyLoss(0.5),
+                               NULL,// new ceres::CauchyLoss(1),
                                _Ks[i].ptr<double>(0),
                                angle_axes[i],
                                _ts[i].ptr<double>(0),
                                &(space_pt.x));
     }
+    problem.SetParameterBlockConstant(_Ks[i].ptr<double>(0));
   }
+  problem.SetParameterBlockConstant(angle_axes[0]);
+  problem.SetParameterBlockConstant(_ts[0].ptr<double>(0));
 
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -377,7 +387,6 @@ bool BundleTwoCameras::OptPoints(
   
   if (_space_pts.size() != _observes[0].size() &&
       _space_pts.size() != _observes[1].size())
-
     return false;
 
 
@@ -397,45 +406,28 @@ bool BundleTwoCameras::OptPoints(
 
       auto &space_pt = _space_pts[idx];
       problem.AddResidualBlock(cost_function,
-                               NULL,//new ceres::CauchyLoss(0.5),
+                               NULL, //new ceres::CauchyLoss(0.5),
                                _Ks[i].ptr<double>(0),
                                angle_axes[i],
                                _ts[i].ptr<double>(0),
                                &(space_pt.x));
-      problem.SetParameterBlockConstant(_Ks[i].ptr<double>(0));
-      problem.SetParameterBlockConstant(angle_axes[i]);
-      problem.SetParameterBlockConstant(_ts[i].ptr<double>(0));
     }
+    problem.SetParameterBlockConstant(_Ks[i].ptr<double>(0));
+    problem.SetParameterBlockConstant(angle_axes[i]);
+    problem.SetParameterBlockConstant(_ts[i].ptr<double>(0));
   }
-  /*
-  for (int i = 0; i < 2; ++i) {
-    for (std::size_t idx = 0; idx < _space_pts.size(); ++idx) {
-      const auto &observe_pt = _observes[i][idx];
-      ceres::CostFunction * cost_function = 
-          PointsKReprojectError::Create(
-              _Ks[i].ptr<double>(0),
-              angle_axes[i],
-              _ts[i].ptr<double>(0),
-              observe_pt.x, observe_pt.y);
 
-      auto &space_pt = _space_pts[idx];
-      problem.AddResidualBlock(cost_function,
-                               NULL,//new ceres::CauchyLoss(0.5),
-                               &(space_pt.x));
-    }
-  }
-  */
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
   options.preconditioner_type = ceres::JACOBI;
-  options.max_num_iterations = 50;
+  options.max_num_iterations = 10;
   // options.use_nonmonotonic_steps = true;
   
-  options.minimizer_progress_to_stdout = true;
+  // options.minimizer_progress_to_stdout = true;
   
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
-  std::cout << summary.FullReport() << "\n";
+  // std::cout << summary.FullReport() << "\n";
   if (summary.termination_type == ceres::CONVERGENCE)
     return true;
   else
