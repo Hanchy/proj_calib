@@ -22,6 +22,9 @@ void retrieve_points(const Camera &_cam, const std::vector<int> &_pt_idx,
 void construct_3d_pts(std::vector<Camera> &_cams,
                       SpacePoints<cv::Point3d> &_space_pts);
 
+void recover_projector_matrix(Projector &_proj,
+                              SpacePoints<cv::Point3d> &_space_pts);
+
 
 
 template<typename Tk, typename Tv>

@@ -149,11 +149,12 @@ bool triangulate_pts(Camera &_cam1,
     }
 
     std::array<cv::Mat, 2> Ks {{_cam1.intrinsic_, _cam2.intrinsic_}};
+    std::array<cv::Mat, 2> dists{{_cam1.dist_coeff_, _cam2.dist_coeff_}};
     std::array<cv::Mat, 2> Rs {{I, R}};
     std::array<cv::Mat, 2> ts {{o, t}};
     std::array<std::vector<cv::Point2d>, 2> observes{{observes1, observes2}};
 
-    if (btc(Ks, Rs, ts, observes, space_pts)) {
+    if (btc(Ks, dists, Rs, ts, observes, space_pts)) {
       cv::Mat R12 = R; // from I to R
       _cam2.R_ = R12 * _cam1.R_; 
       cv::Mat C2 = -R.t() * t; 
@@ -273,6 +274,8 @@ void incremental_triangulate(std::vector<Camera> &_cams,
                       std::back_inserter(left_labels));
 
   for (auto &another_cam : _cams) {
+    if (_new_cam.cam_label_ == another_cam.cam_label_)
+      continue;
 
     std::vector<int> another_labels;
     retrieve_keys(another_cam.l2imgpt_idx_, another_labels);
@@ -326,6 +329,8 @@ void incremental_triangulate(std::vector<Camera> &_cams,
     std::cout << "points: " << space_pts.size() << std::endl;
     
     std::array<cv::Mat, 2> Ks{{_new_cam.intrinsic_, another_cam.intrinsic_}};
+    std::array<cv::Mat, 2> dists{{_new_cam.dist_coeff_, 
+            another_cam.dist_coeff_}};
     std::array<cv::Mat, 2> Rs{{_new_cam.R_, another_cam.R_}};
     std::array<cv::Mat, 2> ts{{_new_cam.t_, another_cam.t_}};
     std::array<std::vector<cv::Point2d>, 2> observes{{new_obs, another_obs}};
@@ -334,7 +339,7 @@ void incremental_triangulate(std::vector<Camera> &_cams,
     int num_it {0};
     while (num_it < 100) {
       auto s_pts = space_pts;
-      if (btw_points.OptPoints(Ks, Rs, ts, observes, s_pts)) {
+      if (btw_points.OptPoints(Ks, dists, Rs, ts, observes, s_pts)) {
         space_pts = s_pts;
         break;
       }
@@ -357,10 +362,12 @@ void incremental_triangulate(std::vector<Camera> &_cams,
 void construct_3d_pts(std::vector<Camera> &_cams,
                       SpacePoints<cv::Point3d> &_space_pts) {
   std::vector<int> cam_index {{0, 3, 2, 1}};
+
   auto it = cam_index.begin();
-  
   triangulate_pts(_cams[*it], _cams[*(it+1)], _space_pts);
-  // SavePLY("first.ply", _space_pts.points_);
+
+  SavePLY("first.ply", _space_pts.points_);
+
   std::vector<Camera> cams{{_cams[*it], _cams[*(it+1)]}};
   BundleAllCameras bac(&cams, &_space_pts);
 
@@ -374,7 +381,74 @@ void construct_3d_pts(std::vector<Camera> &_cams,
     bac.Optimize();
   }
 
-  // SavePLY("bac0321.ply", _space_pts.points_);
+  /*
 
+  std::vector<int> cam_indexn {{3, 2, 1}};
+
+  it = cam_indexn.begin();
+
+  // BundleAllCameras bac(&cams, &_space_pts);
+
+  for (; it != cam_indexn.end(); ++it) {
+    get_init_R_t(cams, _cams[*it], _space_pts);
+    // cams.push_back(_cams[*it]);
+  }
+  bac.Optimize();
+  */
 }
-                      
+
+
+void recover_projector_matrix(Projector &_proj,
+                              SpacePoints<cv::Point3d> &_space_pts) {
+  std::vector<int> space_labels;
+  retrieve_keys(_space_pts.l2pt_idx_, space_labels);
+  
+  std::vector<int> obs_labels;
+  retrieve_keys(_proj.l2imgpt_idx_, obs_labels);
+
+  std::vector<int> common_labels;
+  std::set_intersection(space_labels.begin(), space_labels.end(),
+                        obs_labels.begin(), obs_labels.end(),
+                        std::back_inserter(common_labels));
+
+  std::vector<cv::Point3d> objectPoints;
+  objectPoints.reserve(common_labels.size());
+  std::vector<cv::Point2d> imagePoints;
+  imagePoints.reserve(common_labels.size());
+
+  for (const auto label : common_labels) {
+    auto obs_i = _proj.l2imgpt_idx_[label];
+    auto pts_i = _space_pts.l2pt_idx_[label];
+
+    imagePoints.push_back(_proj.img_pts_[obs_i]);
+    objectPoints.push_back(_space_pts.points_[pts_i]);
+  }
+
+  cv::Mat rvec;
+  // cv::Rodrigues(_cams.back().R_, rvec);
+  cv::Mat tvec;// = _cams.back().t_.clone();
+  cv::solvePnPRansac(objectPoints, imagePoints, 
+                     _proj.intrinsic_, _proj.dist_coeff_, 
+                     rvec, tvec, false, 300, 4);
+
+  cv::Mat rot_mat;
+  cv::Rodrigues(rvec, rot_mat);
+  rot_mat.copyTo(_proj.R_);
+  tvec.copyTo(_proj.t_);
+  
+  BundleCameraParameters bcp;
+  for (int i = 0; i < 100; i++) {
+    auto K = _proj.intrinsic_.clone();
+    auto dist = _proj.dist_coeff_.clone();
+    auto R = _proj.R_;
+    auto t = _proj.t_;
+    auto img_pts = imagePoints;
+    auto obj_pts = objectPoints;
+    if (bcp(K, dist, R, t, img_pts, obj_pts)) {
+      R.copyTo(_proj.R_);
+      t.copyTo(_proj.t_);
+      break;
+    }
+    std::cout << "bcp: " << i << std::endl;
+  }
+}                      

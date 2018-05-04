@@ -43,3 +43,35 @@ bool read_cams(const std::string &_intrinsic_dir,
 
   return true;
 }
+
+
+
+Projector read_proj(const std::string &_proj_file,
+                    const int _cols,
+                    const int _rows,
+                    const int _cam_label) {
+
+  Projector proj(_proj_file, _cols, _rows, _cam_label);
+
+  proj.intrinsic_ = cv::Mat::eye(3, 3, CV_64F);
+  // 1.6181099752898197e+003, 0., 5.0007429573261237e+002, 0.,
+  //     1.7160920068224825e+003, 5.0126179627357050e+002, 0., 0., 1.
+  proj.intrinsic_.at<double>(0, 0) = 1.6181099752898197e+003;
+  proj.intrinsic_.at<double>(0, 2) = 5.0007429573261237e+002;
+  proj.intrinsic_.at<double>(1, 1) = 1.7160920068224825e+003;
+  proj.intrinsic_.at<double>(1, 2) = 5.0126179627357050e+002;
+
+  //-1.8229298965172336e-002, -7.3555538054537947e-003, 
+  //-4.1185635516133516e-002, -1.3764460456398904e-002, 0.
+  proj.dist_coeff_ = cv::Mat::zeros(5, 1, CV_64F);
+  proj.dist_coeff_.at<double>(0, 0) = -1.8229298965172336e-002;
+  proj.dist_coeff_.at<double>(1, 0) = -7.3555538054537947e-003;
+  proj.dist_coeff_.at<double>(2, 0) = -4.1185635516133516e-002;
+  proj.dist_coeff_.at<double>(3, 0) = -1.3764460456398904e-002;
+
+
+  proj.R_ = cv::Mat::eye(3, 3, CV_64F);
+  proj.t_ = cv::Mat::zeros(3, 1, CV_64F);
+  
+  return proj;
+}

@@ -4,14 +4,6 @@
 void show_cam(std::vector<Camera> &_cams) {
   cv::viz::Viz3d myWindow("Frame");
   int i = 0;
-  
-  std::vector<cv::viz::Color> colors {
-    cv::viz::Color::white(),
-        cv::viz::Color::cyan(),
-        cv::viz::Color::green(),
-        cv::viz::Color::cherry(),
-        cv::viz::Color::gold()};
-
   for (auto & cam : _cams) {
     cv::Mat &R = cam.R_;
     cv::Mat &t = cam.t_;
@@ -40,7 +32,6 @@ void show_cam(std::vector<Camera> &_cams) {
     cv::Matx33d k(K.at<double>(0, 0), K.at<double>(0, 1), K.at<double>(0, 2),
                   K.at<double>(1, 0), K.at<double>(1, 1), K.at<double>(1, 2),
                   K.at<double>(2, 0), K.at<double>(2, 1), K.at<double>(2, 2));
-    
 
     cv::Affine3d cam_pose = 
         cv::viz::makeCameraPose(position, focal_point, y_dir);
@@ -48,7 +39,7 @@ void show_cam(std::vector<Camera> &_cams) {
     // cv::Affine3d transform = 
     //     cv::viz::makeTransformToGlobal(x_dir, y_dir, focal_point, position);
     cv::viz::WCameraPosition cpw(0.05);
-    cv::viz::WCameraPosition cpw_frustum(k, 0.1, colors[i]);
+    cv::viz::WCameraPosition cpw_frustum(k, 0.1);
     myWindow.showWidget("cpw"+std::to_string(i), cpw, cam_pose);
     myWindow.showWidget("cpw_frus"+std::to_string(i), cpw_frustum, cam_pose);
     i++;

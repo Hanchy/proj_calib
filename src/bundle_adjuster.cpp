@@ -130,6 +130,80 @@ struct CameraReprojectError{
 
 
 
+struct KDistReprojectError{
+  
+  KDistReprojectError(double _observed_x, double _observed_y)
+      : observed_x_(_observed_x), 
+        observed_y_(_observed_y) {}
+
+  template <typename T>
+  bool operator()(const T *const _K,
+                  const T *const _dist,
+                  const T *const _R, // AngleAxis form
+                  const T *const _t, // translation
+                  const T *const _point, // 3d space pt projected to the image
+                  T *_residuals) const {
+
+    T p[3];
+    ceres::AngleAxisRotatePoint(_R, _point, p);
+    p[0] += _t[0];
+    p[1] += _t[1];
+    p[2] += _t[2];
+
+    p[0] /= p[2];
+    p[1] /= p[2];
+
+    T r2 = p[0] * p[0] + p[1] * p[1];
+    T r4 = r2 * r2;
+    T r6 = r4 * r2;
+    T k1 = _dist[0];
+    T k2 = _dist[1];
+    T k3 = _dist[4];
+    T p1 = _dist[2];
+    T p2 = _dist[3];
+
+    T radial_len = T(1) + k1 * r2 + k2 * r4 + k3 * r6;
+
+    T x = p[0];
+    T y = p[1];
+    
+    T xq = radial_len * x + T(2) * p1 * x * y + p2 * (r2 + T(2) * x * x);
+    T yq = radial_len * y + p1 * (r2 + T(2) * y * y) + T(2) * p2 * x * y;
+    
+    T h[3] = {xq, yq, T(1)};
+
+    T pp[3] = {T(0), T(0), T(0)};
+    for (int i = 0; i < 3; ++i) {
+      for (int j = 0; j < 3; ++j) {
+        pp[i]  += _K[i * 3 + j] * h[j];
+      }
+    }
+
+    pp[0] /= pp[2];
+    pp[1] /= pp[2];
+
+    _residuals[0] = observed_x_ - pp[0];
+    _residuals[1] = observed_y_ - pp[1];
+    
+    return true;
+  }
+
+
+  static ceres::CostFunction *Create(const double _observed_x,
+                                     const double _observed_y) {
+    return (
+        new 
+        ceres::AutoDiffCostFunction<KDistReprojectError, 2, 9, 5, 3, 3, 3> 
+        (new KDistReprojectError(_observed_x, _observed_y)));
+  }
+
+  double observed_x_;
+  double observed_y_;
+};
+
+
+
+
 
 struct CameraKReprojectError{
   
@@ -278,15 +352,18 @@ void BundleAllCameras::Optimize() {
       }
     
       ceres::CostFunction * cost_function = 
-          CameraKReprojectError::Create(r_pt.x, r_pt.y);
+          //CameraKReprojectError::Create(r_pt.x, r_pt.y);
+          KDistReprojectError::Create(r_pt.x, r_pt.y);
 
       problem.AddResidualBlock(cost_function,
                                NULL, //new ceres::CauchyLoss(0.5),
                                cam.intrinsic_.ptr<double>(0),
+                               cam.dist_coeff_.ptr<double>(0),
                                angle_axes[i],
                                cam.t_.ptr<double>(0),
                                &(space_pt->x));
       problem.SetParameterBlockConstant(cam.intrinsic_.ptr<double>(0));
+      problem.SetParameterBlockConstant(cam.dist_coeff_.ptr<double>(0));
     }
   }
   problem.SetParameterBlockConstant(angle_axes[0]);
@@ -313,6 +390,7 @@ void BundleAllCameras::Optimize() {
 
 bool BundleTwoCameras::operator()(
     std::array<cv::Mat, 2> &_Ks,
+    std::array<cv::Mat, 2> &_dists,
     std::array<cv::Mat, 2> &_Rs,
     std::array<cv::Mat, 2> &_ts,
     std::array<std::vector<cv::Point2d>, 2> &_observes,
@@ -335,17 +413,20 @@ bool BundleTwoCameras::operator()(
     for (std::size_t idx = 0; idx < _space_pts.size(); ++idx) {
       const auto &observe_pt = _observes[i][idx];
       ceres::CostFunction * cost_function = 
-          CameraKReprojectError::Create(observe_pt.x, observe_pt.y);
+          //CameraKReprojectError::Create(observe_pt.x, observe_pt.y);
+          KDistReprojectError::Create(observe_pt.x, observe_pt.y);
 
       auto &space_pt = _space_pts[idx];
       problem.AddResidualBlock(cost_function,
                                NULL,// new ceres::CauchyLoss(1),
                                _Ks[i].ptr<double>(0),
+                               _dists[i].ptr<double>(0),
                                angle_axes[i],
                                _ts[i].ptr<double>(0),
                                &(space_pt.x));
     }
     problem.SetParameterBlockConstant(_Ks[i].ptr<double>(0));
+    problem.SetParameterBlockConstant(_dists[i].ptr<double>(0));
   }
   problem.SetParameterBlockConstant(angle_axes[0]);
   problem.SetParameterBlockConstant(_ts[0].ptr<double>(0));
@@ -380,6 +461,7 @@ bool BundleTwoCameras::operator()(
 
 bool BundleTwoCameras::OptPoints(
     std::array<cv::Mat, 2> &_Ks,
+    std::array<cv::Mat, 2> &_dists,
     std::array<cv::Mat, 2> &_Rs,
     std::array<cv::Mat, 2> &_ts,
     std::array<std::vector<cv::Point2d>, 2> &_observes,
@@ -402,17 +484,20 @@ bool BundleTwoCameras::OptPoints(
     for (std::size_t idx = 0; idx < _space_pts.size(); ++idx) {
       const auto &observe_pt = _observes[i][idx];
       ceres::CostFunction * cost_function = 
-          CameraKReprojectError::Create(observe_pt.x, observe_pt.y);
+          //    CameraKReprojectError::Create(observe_pt.x, observe_pt.y);
+          KDistReprojectError::Create(observe_pt.x, observe_pt.y);
 
       auto &space_pt = _space_pts[idx];
       problem.AddResidualBlock(cost_function,
                                NULL, //new ceres::CauchyLoss(0.5),
                                _Ks[i].ptr<double>(0),
+                               _dists[i].ptr<double>(0),
                                angle_axes[i],
                                _ts[i].ptr<double>(0),
                                &(space_pt.x));
     }
     problem.SetParameterBlockConstant(_Ks[i].ptr<double>(0));
+    problem.SetParameterBlockConstant(_dists[i].ptr<double>(0));
     problem.SetParameterBlockConstant(angle_axes[i]);
     problem.SetParameterBlockConstant(_ts[i].ptr<double>(0));
   }
@@ -435,4 +520,65 @@ bool BundleTwoCameras::OptPoints(
   
   //  return true;
 
+}
+
+
+
+bool BundleCameraParameters::operator()(cv::Mat &_K,
+                                        cv::Mat &_dists,
+                                        cv::Mat &_R,
+                                        cv::Mat &_t,
+                                        std::vector<cv::Point2d> &_observes,
+                                        std::vector<cv::Point3d> &_space_pts) {
+  
+  if (_space_pts.size() != _observes.size())
+    return false;
+
+
+  double angle_axis[3] = {0, 0, 0};
+  const double *rot_mat = _R.ptr<double>(0);
+  ceres::RotationMatrixToAngleAxis(ceres::RowMajorAdapter3x3(rot_mat),
+                                   angle_axis);
+  
+  ceres::Problem problem;
+  for (std::size_t idx = 0; idx < _space_pts.size(); ++idx) {
+    const auto &observe_pt = _observes[idx];
+    ceres::CostFunction * cost_function = 
+        KDistReprojectError::Create(observe_pt.x, observe_pt.y);
+
+    auto &space_pt = _space_pts[idx];
+    problem.AddResidualBlock(cost_function,
+                             NULL, //new ceres::CauchyLoss(0.5),
+                             _K.ptr<double>(0),
+                             _dists.ptr<double>(0),
+                             angle_axis,
+                             _t.ptr<double>(0),
+                             &(space_pt.x));
+    problem.SetParameterBlockConstant(&(space_pt.x));
+  }
+  problem.SetParameterBlockConstant(_K.ptr<double>(0));
+  problem.SetParameterBlockConstant(_dists.ptr<double>(0));
+
+  
+  ceres::Solver::Options options;
+  options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.preconditioner_type = ceres::JACOBI;
+  options.max_num_iterations = 1000;
+  // options.use_nonmonotonic_steps = true;
+  
+  options.minimizer_progress_to_stdout = true;
+  
+  ceres::Solver::Summary summary;
+  ceres::Solve(options, &problem, &summary);
+  std::cout << summary.FullReport() << "\n";
+  if (summary.termination_type == ceres::CONVERGENCE)
+    return true;
+  else
+    return false;
+  
+  double *rot = _R.ptr<double>(0);
+  ceres::AngleAxisToRotationMatrix(angle_axis, 
+                                   ceres::RowMajorAdapter3x3(rot));
+
+  return true;
 }

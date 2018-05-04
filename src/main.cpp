@@ -11,21 +11,15 @@
 
 void draw_points(const Camera &_cam, cv::Mat &_plane);
 void draw_r_points(const Camera &_cam, cv::Mat &_plane);
-// void common_points_idx(const Camera &_cam1, const Camera &_cam2,
-//                        std::vector<int> &_order_img);
-
-// void retrieve_points(const Camera &_cam, const std::vector<int> &_pt_idx,
-//                      std::vector<cv::Point2d> &_pts);
-// 
-// void construct_3d_pts(std::vector<Camera> &_cams,
-//                       SpacePoints<cv::Point3d> &_space_pts);
 
 int main(int argc, char **argv) {
   
-  if (argc != 3)
+  if (argc != 4)
     return -1;
   std::vector<Camera> cams;
   read_cams(argv[1], argv[2], cams);
+
+  Projector proj = read_proj(argv[3], 1024, 768, 0);
   
 #if 0
 
@@ -92,14 +86,16 @@ int main(int argc, char **argv) {
   construct_3d_pts(cams, space_points);
   SavePLY("final.ply", space_points.points_);
 
+  recover_projector_matrix(proj, space_points);
+  
+  cams.push_back(proj);
+  show_cam(cams);
+
   return 0;
 }
 
 
 void draw_points(const Camera &_cam, cv::Mat &_plane) {
-  // _plane = cv::Mat(_cam.rows_, _cam.cols_, 
-  //                  CV_32FC3, cv::Scalar(255,255,255));
-  
   for(auto &pt : _cam.img_pts_) {
     cv::circle(_plane, pt, 10, cv::Scalar(0, 0, 255), 2);
   }

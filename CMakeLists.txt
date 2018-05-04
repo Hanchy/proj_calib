@@ -7,11 +7,9 @@ set(CMAKE_CXX_FLAGS
 
 set(DY_EXT "")
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-  #set(DY_EXT "dylib")
   set(CMAKE_MODULE_PATH 
     ${CMAKE_MODULE_PATH} /usr/local//Cellar/opencv/3.4.1_4/share/OpenCV/)
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-  # set(DY_EXT "so")
   set(CMAKE_MODULE_PATH 
     ${CMAKE_MODULE_PATH} /usr/local/share/OpenCV)
   set(OpenCV_INCLUDE_DIR "/usr/local/include")
@@ -21,10 +19,13 @@ endif()
 find_package(OpenCV REQUIRED)
 
 
-set(SRC_FILES "${PROJECT_BINARY_DIR}/../src/camera.cpp"
-  "${PROJECT_BINARY_DIR}/../src/read_data.cpp"
+set(SRC_FILES 
   "${PROJECT_BINARY_DIR}/../src/main.cpp"
   "${PROJECT_BINARY_DIR}/../src/bundle_adjuster.cpp"
+  "${PROJECT_BINARY_DIR}/../src/camera.cpp"
+  "${PROJECT_BINARY_DIR}/../src/read_data.cpp"
+  "${PROJECT_BINARY_DIR}/../src/reconstruction.cpp"
+  "${PROJECT_BINARY_DIR}/../src/show_cam.cpp"
 )
 
 find_package(Boost COMPONENTS filesystem REQUIRED)

@@ -21,6 +21,37 @@ Camera::Camera(const std::string &_intrinsic_file,
 
 }
 
+Camera::Camera(const std::string &_2d_pts_file,
+               const int _cols, const int _rows, 
+               const int _cam_label) :
+    cols_(_cols), rows_(_rows), cam_label_(_cam_label) {
+  ReadObserves(_2d_pts_file);
+}
+
+  
+void Camera::ReadObserves(const std::string &_2d_pts_file) {
+  std::ifstream pts_file(_2d_pts_file);
+  if (!pts_file.is_open()) {
+    std::cerr << "Cannot open file: " << _2d_pts_file << std::endl;
+    return ;
+  }
+
+  std::string line;
+  int i = 0;
+  while(std::getline(pts_file, line)) {
+    std::istringstream line_to_read(line);
+    int order_img;
+    cv::Point2d pt;
+    
+    line_to_read >> order_img >> pt.x >> pt.y;
+
+    img_pts_.push_back(pt);
+    l2imgpt_idx_.insert(std::make_pair(order_img, i));
+    ++i;
+  }
+
+}
+
 
 bool Camera::read_intrinsics(const std::string &_intrinsic_file) {
   cv::FileStorage intrinsic_fs(_intrinsic_file, cv::FileStorage::READ);

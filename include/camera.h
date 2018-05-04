@@ -15,8 +15,12 @@ class Camera {
                   const std::string &_2d_pts_file, 
                   const int _cam_labels);
 
-
+  explicit Camera(const std::string &_2d_pts_file,
+                  const int _cols, const int _rows, 
+                  const int _cam_label);
   
+  void ReadObserves(const std::string &_2d_pts_file);
+
 
   cv::Mat intrinsic_;
   cv::Mat dist_coeff_;
@@ -43,5 +47,7 @@ class Camera {
 
 };
 
+
+typedef Camera Projector;
 
 
