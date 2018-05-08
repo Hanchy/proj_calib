@@ -22,9 +22,15 @@ void retrieve_points(const Camera &_cam, const std::vector<int> &_pt_idx,
 void construct_3d_pts(std::vector<Camera> &_cams,
                       SpacePoints<cv::Point3d> &_space_pts);
 
-void recover_projector_matrix(Projector &_proj,
+
+void recover_projector_matrix(Projector &_proj, Camera &_cam,
                               SpacePoints<cv::Point3d> &_space_pts);
 
+void optimize_K_dist(Projector &_proj, SpacePoints<cv::Point3d> &_space_pts);
+
+void bundle_cameras_projectors(std::vector<Camera> &_cams,
+                              Projector &_proj,
+                              SpacePoints<cv::Point3d> &_space_pts);
 
 
 template<typename Tk, typename Tv>

@@ -6,6 +6,41 @@
 #include "SpacePoints.hpp"
 
 #include <array>
+#include <initializer_list>
+
+class OPTIMIZE_CONST_CHOICES {
+ public:
+  OPTIMIZE_CONST_CHOICES();
+  OPTIMIZE_CONST_CHOICES(std::initializer_list<bool> _l);
+
+
+  void set_all(bool state = false);
+
+  bool &operator[](int i) {return fixes_[i];}
+  bool operator[](int i) const {return fixes_[i];}
+  
+  bool &fix_K_() {return fixes_[0];}
+  bool &fix_D_() {return fixes_[1];}
+  bool &fix_R_() {return fixes_[2];}
+  bool &fix_t_() {return fixes_[3];}
+  bool &fix_P_() {return fixes_[4];} // 3d space points
+
+
+  bool fix_K_() const {return fixes_[0];}
+  bool fix_D_() const {return fixes_[1];}
+  bool fix_R_() const {return fixes_[2];}
+  bool fix_t_() const {return fixes_[3];}
+  bool fix_P_() const {return fixes_[4];} // 3d space points
+
+  friend std::ostream &operator<<(std::ostream &_out, 
+                                  OPTIMIZE_CONST_CHOICES _choices);
+
+
+  bool fixes_[5];
+};
+
+
+
 
 
 class BundleAllCameras {
@@ -14,7 +49,7 @@ class BundleAllCameras {
                    SpacePoints<cv::Point3d> *_space_pts) 
       : cams_(_cams), space_pts_(_space_pts) {}
 
-  void Optimize();
+  void Optimize(bool _fix_pts = false);
 
 
   std::vector<Camera> *cams_;
@@ -54,6 +89,7 @@ class BundleCameraParameters {
                   cv::Mat &_R,
                   cv::Mat &_t,
                   std::vector<cv::Point2d> &_observes,
-                  std::vector<cv::Point3d> &_space_pts);
+                  std::vector<cv::Point3d> &_space_pts,
+                  const OPTIMIZE_CONST_CHOICES _fix_choices);
 };
 

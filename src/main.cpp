@@ -19,11 +19,19 @@ int main(int argc, char **argv) {
   std::vector<Camera> cams;
   read_cams(argv[1], argv[2], cams);
 
-  Projector proj = read_proj(argv[3], 1024, 768, 0);
-  
+  Projector proj = read_proj(argv[3], 1024, 768, 4);
+
 #if 0
 
   cv::namedWindow("pts0", cv::WINDOW_NORMAL);
+  cv::Mat prj(proj.rows_, proj.cols_, 
+              CV_32FC3, cv::Scalar(255,255,255));
+  draw_points(proj, prj);
+
+  cv::imshow("pts0", prj);
+  cv::waitKey(0);
+
+
   cv::namedWindow("pts1", cv::WINDOW_NORMAL);
   cv::namedWindow("pts2", cv::WINDOW_NORMAL);
   cv::namedWindow("pts3", cv::WINDOW_NORMAL);
@@ -82,14 +90,51 @@ int main(int argc, char **argv) {
   cv::waitKey(0);
 #endif
 
-  SpacePoints<cv::Point3d> space_points;
-  construct_3d_pts(cams, space_points);
-  SavePLY("final.ply", space_points.points_);
+  // SpacePoints<cv::Point3d> space_points;
+  // construct_3d_pts(cams, space_points);
+  // SavePLY("final.ply", space_points.points_);
 
-  recover_projector_matrix(proj, space_points);
+#if 0
+
+  recover_projector_matrix(proj, cams[2], space_points);
+
+  for (int i = 0; i < 1; ++i) {
+    bundle_cameras_projectors(cams, proj, space_points);
+    optimize_K_dist(proj, space_points);
+  }
+  // cams.push_back(proj);
+  std::cout << proj.intrinsic_ << std::endl;
+  std::cout << proj.dist_coeff_ << std::endl;
+  // show_cam(cams);
+#endif
+
+  double K[9] = // {1.6181099752898197e+003, 0., 5.0007429573261237e+002, 0.,
+                //  1.7160920068224825e+003, 5.0126179627357050e+002, 0., 0., 1.};
+      {1703.746542019431, 0, 26.82821162744193, 
+       0, 1686.826861376104, 527.4843792311859,
+       0, 0, 1};
+  cv::Mat matK(3, 3, CV_64F, K);
+  cv::Mat invK = matK.inv();
+  std::cout << "invK\n" << invK << std::endl;
+  std::vector<cv::Point2d> normal_pts;
+  normal_pts.reserve(proj.img_pts_.size());
+  for (const auto & pt : proj.img_pts_) {
+    cv::Mat m_pt = cv::Mat::ones(3, 1, CV_64F); 
+    m_pt.at<double>(0, 0) = pt.x;
+    m_pt.at<double>(1, 0) = pt.y;
+    cv::Mat n_pt = invK * m_pt;
+    normal_pts.push_back(
+        cv::Point2d(1000*(n_pt.at<double>(0, 0) / n_pt.at<double>(2, 0)+1),
+                    1000*(n_pt.at<double>(1, 0) / n_pt.at<double>(2, 0)+1)));
+  }
   
-  cams.push_back(proj);
-  show_cam(cams);
+  cv::Mat pl(2000, 2000, CV_32FC3, cv::Scalar(255, 255 ,255));
+  for (const auto pt : normal_pts) {
+    cv::circle(pl, pt, 10, cv::Scalar(0, 255, 255), 2);
+  }
+  cv::namedWindow("pl", cv::WINDOW_NORMAL);
+  cv::imshow("pl", pl);
+  cv::waitKey(0);
 
   return 0;
 }
@@ -113,4 +158,5 @@ void draw_r_points(const Camera &_cam, cv::Mat &_plane) {
     cv::circle(_plane, npt, 5, cv::Scalar(0, 0, 0), 2);
   }
 }
+
 

@@ -3,6 +3,34 @@
 #include <ceres/rotation.h>
 
 
+OPTIMIZE_CONST_CHOICES::OPTIMIZE_CONST_CHOICES() {
+  for (int i = 0; i < 5; ++i)
+    fixes_[i] = false;
+}
+
+OPTIMIZE_CONST_CHOICES::OPTIMIZE_CONST_CHOICES(std::initializer_list<bool> _l) {
+  int i = 0;
+  for (auto it = _l.begin(); it != _l.end() && i < 5; ++it, ++i) {
+    fixes_[i] = *it;
+  }
+}
+
+void OPTIMIZE_CONST_CHOICES::set_all(bool state) {
+  for (int i = 0; i < 5; ++i) 
+    fixes_[i] = state;
+}
+
+
+std::ostream &operator<<(std::ostream &_out, OPTIMIZE_CONST_CHOICES _choices) {
+  _out << "fix_K: " << (_choices.fix_K_()? "yes" : "no") << std::endl;
+  _out << "fix_D: " << (_choices.fix_D_()? "yes" : "no") << std::endl;
+  _out << "fix_R: " << (_choices.fix_R_()? "yes" : "no") << std::endl;
+  _out << "fix_t: " << (_choices.fix_t_()? "yes" : "no") << std::endl;
+  _out << "fix_P: " << (_choices.fix_P_()? "yes" : "no") << std::endl;
+  return _out;
+}
+
+
 void AngleAxisRotatePoint(const double angle_axis[3], 
                           const double pt[3], double result[3]) {
   const double theta2 = ceres::DotProduct(angle_axis, angle_axis);
@@ -317,7 +345,7 @@ struct PointsKReprojectError{
 
 
 
-void BundleAllCameras::Optimize() {
+void BundleAllCameras::Optimize(bool _fix_pts) {
 
   std::vector<double[3]> angle_axes(cams_->size());
   for (std::size_t i = 0; i < cams_->size(); ++i) {
@@ -364,6 +392,8 @@ void BundleAllCameras::Optimize() {
                                &(space_pt->x));
       problem.SetParameterBlockConstant(cam.intrinsic_.ptr<double>(0));
       problem.SetParameterBlockConstant(cam.dist_coeff_.ptr<double>(0));
+      if (_fix_pts)
+        problem.SetParameterBlockConstant(&(space_pt->x));
     }
   }
   problem.SetParameterBlockConstant(angle_axes[0]);
@@ -524,12 +554,14 @@ bool BundleTwoCameras::OptPoints(
 
 
 
-bool BundleCameraParameters::operator()(cv::Mat &_K,
-                                        cv::Mat &_dists,
-                                        cv::Mat &_R,
-                                        cv::Mat &_t,
-                                        std::vector<cv::Point2d> &_observes,
-                                        std::vector<cv::Point3d> &_space_pts) {
+bool BundleCameraParameters::operator()(
+    cv::Mat &_K,
+    cv::Mat &_dists,
+    cv::Mat &_R,
+    cv::Mat &_t,
+    std::vector<cv::Point2d> &_observes,
+    std::vector<cv::Point3d> &_space_pts,
+    const OPTIMIZE_CONST_CHOICES _fix_choices) {
   
   if (_space_pts.size() != _observes.size())
     return false;
@@ -556,21 +588,55 @@ bool BundleCameraParameters::operator()(cv::Mat &_K,
                              &(space_pt.x));
     problem.SetParameterBlockConstant(&(space_pt.x));
   }
-  problem.SetParameterBlockConstant(_K.ptr<double>(0));
-  problem.SetParameterBlockConstant(_dists.ptr<double>(0));
+  if (_fix_choices.fix_K_())
+    problem.SetParameterBlockConstant(_K.ptr<double>(0));
+  else {
+    std::vector<int> k_const_indices = {1, 3, 6, 7, 8};
+    ceres::SubsetParameterization *K_constraint = 
+        new ceres::SubsetParameterization(9, k_const_indices);
+    problem.SetParameterization(_K.ptr<double>(0), K_constraint);
+    problem.SetParameterLowerBound(_K.ptr<double>(0), 0, 100);
+    problem.SetParameterUpperBound(_K.ptr<double>(0), 0, 2000);
+    problem.SetParameterLowerBound(_K.ptr<double>(0), 2, 0);
+    problem.SetParameterUpperBound(_K.ptr<double>(0), 2, 1000);
+    problem.SetParameterLowerBound(_K.ptr<double>(0), 4, 100);
+    problem.SetParameterUpperBound(_K.ptr<double>(0), 4, 2000);
+    problem.SetParameterLowerBound(_K.ptr<double>(0), 5, 0);
+    problem.SetParameterUpperBound(_K.ptr<double>(0), 5, 1000);
+  }
 
-  
+  if (_fix_choices.fix_D_())
+    problem.SetParameterBlockConstant(_dists.ptr<double>(0));
+  else {
+    std::vector<int> dist_const_indices = {4};
+    ceres::SubsetParameterization *dist_constraint =
+        new ceres::SubsetParameterization(5, dist_const_indices);
+    problem.SetParameterization(_dists.ptr<double>(0), dist_constraint);
+    for (int i = 0; i < 4; ++i) {
+      problem.SetParameterLowerBound(_dists.ptr<double>(0), i, -0.05);
+      problem.SetParameterUpperBound(_dists.ptr<double>(0), i,  0.05);
+    }
+  }
+
+  if (_fix_choices.fix_t_())
+    problem.SetParameterBlockConstant(_t.ptr<double>(0));
+
+  if (_fix_choices.fix_R_())
+    problem.SetParameterBlockConstant(angle_axis);
+
+    
+
   ceres::Solver::Options options;
-  options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.linear_solver_type = ceres::DENSE_QR;
   options.preconditioner_type = ceres::JACOBI;
-  options.max_num_iterations = 1000;
+  options.max_num_iterations = 100;
   // options.use_nonmonotonic_steps = true;
   
-  options.minimizer_progress_to_stdout = true;
+  // options.minimizer_progress_to_stdout = true;
   
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
-  std::cout << summary.FullReport() << "\n";
+  // std::cout << summary.FullReport() << "\n";
   if (summary.termination_type == ceres::CONVERGENCE)
     return true;
   else

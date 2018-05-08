@@ -161,8 +161,8 @@ bool triangulate_pts(Camera &_cam1,
       cv::Mat Cc2 = _cam1.R_.t() * (I * C2 + o - _cam1.t_);
       _cam2.t_ = -_cam2.R_ * Cc2;
 
-      _cam1.intrinsic_ = Ks[0];
-      _cam2.intrinsic_ = Ks[1];
+      // _cam1.intrinsic_ = Ks[0];
+      // _cam2.intrinsic_ = Ks[1];
       break;
     } else {
       I = cv::Mat::eye(3, 3, CV_64F);
@@ -381,35 +381,33 @@ void construct_3d_pts(std::vector<Camera> &_cams,
     bac.Optimize();
   }
 
-  /*
-
-  std::vector<int> cam_indexn {{3, 2, 1}};
-
-  it = cam_indexn.begin();
-
-  // BundleAllCameras bac(&cams, &_space_pts);
-
-  for (; it != cam_indexn.end(); ++it) {
-    get_init_R_t(cams, _cams[*it], _space_pts);
-    // cams.push_back(_cams[*it]);
-  }
-  bac.Optimize();
-  */
 }
 
 
-void recover_projector_matrix(Projector &_proj,
+
+
+void recover_projector_matrix(Projector &_proj, Camera &_cam,
                               SpacePoints<cv::Point3d> &_space_pts) {
   std::vector<int> space_labels;
   retrieve_keys(_space_pts.l2pt_idx_, space_labels);
+  std::cout << space_labels.size() << std::endl;
   
   std::vector<int> obs_labels;
   retrieve_keys(_proj.l2imgpt_idx_, obs_labels);
+  std::cout << obs_labels.size() << std::endl;
 
   std::vector<int> common_labels;
   std::set_intersection(space_labels.begin(), space_labels.end(),
                         obs_labels.begin(), obs_labels.end(),
                         std::back_inserter(common_labels));
+  for (auto l : common_labels)
+    _proj.space_pt_labels_.insert(l);
+  
+
+  if (common_labels.size() < 10) {
+    std::cerr << "recover_projector_matrix common_labels too small\n";
+    return;
+  }
 
   std::vector<cv::Point3d> objectPoints;
   objectPoints.reserve(common_labels.size());
@@ -427,28 +425,204 @@ void recover_projector_matrix(Projector &_proj,
   cv::Mat rvec;
   // cv::Rodrigues(_cams.back().R_, rvec);
   cv::Mat tvec;// = _cams.back().t_.clone();
+
+  
+#if 1
+  cv::solvePnP(objectPoints, imagePoints, 
+               _proj.intrinsic_, _proj.dist_coeff_, 
+               rvec, tvec);//, false, 1000, 3, 0.99, inliers);
+#else
+  std::vector<int> inliers;
   cv::solvePnPRansac(objectPoints, imagePoints, 
                      _proj.intrinsic_, _proj.dist_coeff_, 
-                     rvec, tvec, false, 300, 4);
-
+                     rvec, tvec, false, 1000, 3, 0.99, inliers);
+  imagePoints.clear();
+  objectPoints.clear();
+  for (const auto label : inliers) {
+    auto obs_i = _proj.l2imgpt_idx_[label];
+    auto pts_i = _space_pts.l2pt_idx_[label];
+  
+    imagePoints.push_back(_proj.img_pts_[obs_i]);
+    objectPoints.push_back(_space_pts.points_[pts_i]);
+  }
+  std::cout << common_labels.size() << '\t' << inliers.size() << std::endl;
+#endif
   cv::Mat rot_mat;
   cv::Rodrigues(rvec, rot_mat);
   rot_mat.copyTo(_proj.R_);
-  tvec.copyTo(_proj.t_);
-  
+
+  cv::Mat cc = -_cam.R_.t() * _cam.t_;
+  _proj.t_ = -rot_mat * cc;
+  // tvec.copyTo(_proj.t_);
+
   BundleCameraParameters bcp;
-  for (int i = 0; i < 100; i++) {
+
+  OPTIMIZE_CONST_CHOICES fix_choices;
+
+#if 1
+  for (int it = 0; it < 10; ++it) {
+    std::cout << "it " << it << std::endl;
+    // optimize R
+    fix_choices.set_all(true);
+    fix_choices.fix_R_() = false;
+    for (int i = 0; i < 10; i++) {
+      auto K = _proj.intrinsic_.clone();
+      auto dist = _proj.dist_coeff_.clone();
+      auto R = _proj.R_.clone();
+      auto t = _proj.t_.clone();
+      auto img_pts = imagePoints;
+      auto obj_pts = objectPoints;
+    
+      if (bcp(K, dist, R, t, img_pts, obj_pts, fix_choices)) {
+        R.copyTo(_proj.R_);
+        break;
+      }
+    }
+    // optimize K
+    fix_choices.set_all(true);
+    fix_choices.fix_K_() = false;
+    for (int i = 0; i < 10; i++) {
+      auto K = _proj.intrinsic_.clone();
+      auto dist = _proj.dist_coeff_.clone();
+      auto R = _proj.R_.clone();
+      auto t = _proj.t_.clone();
+      auto img_pts = imagePoints;
+      auto obj_pts = objectPoints;
+    
+      if (bcp(K, dist, R, t, img_pts, obj_pts, fix_choices)) {
+        K.copyTo(_proj.intrinsic_);
+        break;
+      }
+    }
+    // 
+    // optimize distortion
+    fix_choices.set_all(true);
+    fix_choices.fix_D_() = false;
+    for (int i = 0; i < 10; i++) {
+      auto K = _proj.intrinsic_.clone();
+      auto dist = _proj.dist_coeff_.clone();
+      auto R = _proj.R_.clone();
+      auto t = _proj.t_.clone();
+      auto img_pts = imagePoints;
+      auto obj_pts = objectPoints;
+    
+      if (bcp(K, dist, R, t, img_pts, obj_pts, fix_choices)) {
+        dist.copyTo(_proj.dist_coeff_);
+        break;
+      }
+    }
+    // optimize t
+    fix_choices.set_all(true);
+    fix_choices.fix_t_() = false;
+    for (int i = 0; i < 100; i++) {
+      auto K = _proj.intrinsic_.clone();
+      auto dist = _proj.dist_coeff_.clone();
+      auto R = _proj.R_.clone();
+      auto t = _proj.t_.clone();
+      auto img_pts = imagePoints;
+      auto obj_pts = objectPoints;
+    
+      if (bcp(K, dist, R, t, img_pts, obj_pts, fix_choices)) {
+        t.copyTo(_proj.t_);
+        break;
+      }
+    }
+
+  }
+#endif
+
+#if 0
+  fix_choices.set_all(false);
+  for (int i = 0; i < 10; i++) {
     auto K = _proj.intrinsic_.clone();
     auto dist = _proj.dist_coeff_.clone();
     auto R = _proj.R_;
     auto t = _proj.t_;
     auto img_pts = imagePoints;
     auto obj_pts = objectPoints;
-    if (bcp(K, dist, R, t, img_pts, obj_pts)) {
+    
+    if (bcp(K, dist, R, t, img_pts, obj_pts, fix_choices)) {
+      K.copyTo(_proj.intrinsic_);
+      dist.copyTo(_proj.dist_coeff_);
       R.copyTo(_proj.R_);
       t.copyTo(_proj.t_);
       break;
     }
-    std::cout << "bcp: " << i << std::endl;
   }
-}                      
+#endif
+}   
+                   
+
+
+void bundle_cameras_projectors(std::vector<Camera> &_cams,
+                               Projector &_proj,
+                               SpacePoints<cv::Point3d> &_space_pts) {
+  
+  _cams.push_back(_proj);
+  BundleAllCameras bac(&_cams, &_space_pts);
+  bac.Optimize(true);
+  
+  SavePLY("bac.ply", _space_pts.points_);
+}
+
+
+
+void optimize_K_dist(Projector &_proj, SpacePoints<cv::Point3d> &_space_pts) {
+  std::vector<int> space_labels;
+  retrieve_keys(_space_pts.l2pt_idx_, space_labels);
+  
+  std::vector<int> obs_labels;
+  retrieve_keys(_proj.l2imgpt_idx_, obs_labels);
+
+  std::vector<int> common_labels;
+  std::set_intersection(space_labels.begin(), space_labels.end(),
+                        obs_labels.begin(), obs_labels.end(),
+                        std::back_inserter(common_labels));
+  for (auto l : common_labels)
+    _proj.space_pt_labels_.insert(l);
+  
+
+  if (common_labels.size() < 10) {
+    std::cerr << "recover_projector_matrix common_labels too small\n";
+    return;
+  }
+
+  std::vector<cv::Point3d> objectPoints;
+  objectPoints.reserve(common_labels.size());
+  std::vector<cv::Point2d> imagePoints;
+  imagePoints.reserve(common_labels.size());
+
+  for (const auto label : common_labels) {
+    auto obs_i = _proj.l2imgpt_idx_[label];
+    auto pts_i = _space_pts.l2pt_idx_[label];
+
+    imagePoints.push_back(_proj.img_pts_[obs_i]);
+    objectPoints.push_back(_space_pts.points_[pts_i]);
+  }
+
+  BundleCameraParameters bcp;
+
+  OPTIMIZE_CONST_CHOICES fix_choices;
+  for (int it = 0; it < 1; ++it) {
+    std::cout << "it " << it << std::endl;
+    // optimize R
+    fix_choices.set_all(false);
+    fix_choices.fix_R_() = true;
+    fix_choices.fix_t_() = true;
+    for (int i = 0; i < 10; i++) {
+      auto K = _proj.intrinsic_.clone();
+      auto dist = _proj.dist_coeff_.clone();
+      auto R = _proj.R_.clone();
+      auto t = _proj.t_.clone();
+      auto img_pts = imagePoints;
+      auto obj_pts = objectPoints;
+    
+      if (bcp(K, dist, R, t, img_pts, obj_pts, fix_choices)) {
+        dist.copyTo(_proj.dist_coeff_);
+        K.copyTo(_proj.intrinsic_);
+        break;
+      }
+    }
+  }  
+
+}

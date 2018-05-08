@@ -3,6 +3,8 @@
 
 void show_cam(std::vector<Camera> &_cams) {
   cv::viz::Viz3d myWindow("Frame");
+  myWindow.showWidget("Coordinate Widget", cv::viz::WCoordinateSystem());
+
   int i = 0;
   
   std::vector<cv::viz::Color> colors {

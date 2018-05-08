@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 2.8)
 
+project(camera_cal)
+
+message("${PROJECT_SOURCE_DIR}")
+message("${PROJECT_BINARY_DIR}")
+
 # set(CMAKE_CXX_COMPILER "clang++-3.9")
 set(CMAKE_CXX_FLAGS 
   "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -pedantic-errors -O0 -ggdb3")
@@ -8,24 +13,24 @@ set(CMAKE_CXX_FLAGS
 set(DY_EXT "")
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
   set(CMAKE_MODULE_PATH 
-    ${CMAKE_MODULE_PATH} /usr/local//Cellar/opencv/3.4.1_4/share/OpenCV/)
+    ${CMAKE_MODULE_PATH} /usr/local/Cellar/opencv/3.4.1_4/share/OpenCV/)
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   set(CMAKE_MODULE_PATH 
     ${CMAKE_MODULE_PATH} /usr/local/share/OpenCV)
   set(OpenCV_INCLUDE_DIR "/usr/local/include")
-  set(OpenBLAS_LIBS "/opt/OpenBLAS/lib/libopenblas.so")
+  #set(OpenBLAS_LIBS "/opt/OpenBLAS/lib/libopenblas.so")
 endif()
 
 find_package(OpenCV REQUIRED)
 
 
 set(SRC_FILES 
-  "${PROJECT_BINARY_DIR}/../src/main.cpp"
-  "${PROJECT_BINARY_DIR}/../src/bundle_adjuster.cpp"
-  "${PROJECT_BINARY_DIR}/../src/camera.cpp"
-  "${PROJECT_BINARY_DIR}/../src/read_data.cpp"
-  "${PROJECT_BINARY_DIR}/../src/reconstruction.cpp"
-  "${PROJECT_BINARY_DIR}/../src/show_cam.cpp"
+  "${PROJECT_SOURCE_DIR}/src/main.cpp"
+  "${PROJECT_SOURCE_DIR}/src/bundle_adjuster.cpp"
+  "${PROJECT_SOURCE_DIR}/src/camera.cpp"
+  "${PROJECT_SOURCE_DIR}/src/read_data.cpp"
+  "${PROJECT_SOURCE_DIR}/src/reconstruction.cpp"
+  "${PROJECT_SOURCE_DIR}/src/show_cam.cpp"
 )
 
 find_package(Boost COMPONENTS filesystem REQUIRED)
